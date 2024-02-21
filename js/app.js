@@ -1,7 +1,10 @@
 /* **********variables*************** */
 const formulario = document.querySelector('#formulario');
 const listaTweets = document.querySelector('#lista-tweets');
-let tweets = [];
+let tweets2 = [];
+let DB;
+let totalTweets = {};
+let almacen;
 
 
 /* *******Event listeners*********** */
@@ -10,17 +13,59 @@ eventListeners();
 
 /* *******Funciones***************** */
 function eventListeners() {
-    // cuando se agrega un nuevo tweet
-    formulario.addEventListener('submit', agregarTweet);
 
     // Cuando el docuemnto este listo
     document.addEventListener('DOMContentLoaded', () => {
-        tweets = JSON.parse(localStorage.getItem('tweets')) || [];
 
-        console.log(tweets);
+        //Creando DB 
+        crearDB();
 
-        crearHtml();
+        setTimeout(() => {
+            obtenerDatos();
+        }, 100);
+
+
+
     })
+
+    // cuando se agrega un nuevo tweet
+    formulario.addEventListener('submit', agregarTweet);
+
+}
+
+function crearDB() {
+    //Creando DB 
+    let request = window.indexedDB.open('Tweets', 1);
+
+    //Si hay un error
+    request.onerror = (e) => {
+        console.log('Hubo un error:' + e.target.errorCode);
+    }
+
+    //Si todo sale bien
+    request.onsuccess = () => {
+        DB = request.result;
+    }
+
+    request.onupgradeneeded = function(e) {
+        const db = e.target.result;
+        console.log('Base de datos creada', db);
+        console.log(DB);
+
+        const objectStore = db.createObjectStore('tweets', {
+            keyPath: 'id',
+            autoIncrement: true
+        });
+
+
+        //DEfinir columnas
+        objectStore.createIndex('id', 'id', { unique: true });
+        objectStore.createIndex('tweets', 'tweet', { unique: false });
+
+        console.log('columnas creadas');
+    }
+
+
 }
 
 function agregarTweet(e) {
@@ -31,24 +76,86 @@ function agregarTweet(e) {
 
     if (tweet === '') {
         mostrarError('El mensaje no puede estar vacio');
-        return; // el return evita que se siga ejecutando más códigi, funciona simpre y cuando el if este dnetro de una función
+        return; // el return evita que se siga ejecutando más código, funciona simpre y cuando el if este dentro de una función
     }
 
+    //objeto para almacenar el tweet 
     const tweetObjt = {
         id: Date.now(),
         tweet // cuando la llave y el valor tiene el mimso nombre se puede dejar solo uno para los dos
     };
 
-    // Añadir al arrgelo de tweets
-    tweets = [...tweets, tweetObjt];
-    console.log(tweets);
 
-    // Una vez agregado al areglo creamos el html
-    crearHtml();
+    // agrega a BD
+    let transaction = DB.transaction(['tweets'], 'readwrite');
+
+    transaction.oncomplete = function() {
+        console.log('Tweet agregado a la bd');
+    }
+
+    transaction.onerror = function() {
+        console.log('hubo un error');
+    }
+
+    const objectStore = transaction.objectStore('tweets');
+
+    const peticion = objectStore.add(tweetObjt);
+
+    obtenerDatos();
+
+}
+
+
+function obtenerDatos() {
+
+    limpiarHtml();
+
+    const objectStore = DB.transaction('tweets').objectStore('tweets');
+    //leer citas de indexedDB
+    DB.transaction(['tweets']).objectStore('tweets');
+
+    objectStore.openCursor().onsuccess = function(e) {
+        const cursor = e.target.result;
+        if (cursor) {
+            const { id, tweet } = cursor.value;
+            crearHtml(id, tweet);
+            cursor.continue();
+        } else {
+            console.log('Resgitros cargados');
+
+        }
+    }
 
     // reiniciar el formulario
     formulario.reset();
 }
+
+// muestra los tweets agregados a indesedDB
+function crearHtml(id, tweet) {
+    // Se crea la lista de html
+    const li = document.createElement('li');
+
+    // crea boton de elminiar en html
+    const btnEliminar = document.createElement('a');
+    btnEliminar.classList.add('borrar-tweet');
+    btnEliminar.innerText = 'X';
+
+    // Añadir la función de eliminar
+    btnEliminar.onclick = () => {
+        eliminarTweet(id);
+    }
+
+    // añadir el texto
+    li.innerText = tweet;
+
+    // Añadir el boton
+    li.appendChild(btnEliminar);
+
+    // insertarlo en el html
+    listaTweets.appendChild(li);
+}
+
+
 
 // muestra un mensaje de error
 function mostrarError(error) {
@@ -65,39 +172,6 @@ function mostrarError(error) {
     }, 2000)
 }
 
-// muestra el listado de los tweets agregados
-function crearHtml() {
-
-    limpiarHtml();
-
-    if (tweets.length > 0) {
-        tweets.forEach(tweet => {
-            // Se crea la lista de html
-            const li = document.createElement('li');
-
-            // crea boton de elminiar en html
-            const btnEliminar = document.createElement('a');
-            btnEliminar.classList.add('borrar-tweet');
-            btnEliminar.innerText = 'X';
-
-            // Añadir la función de eliminar
-            btnEliminar.onclick = () => {
-                eliminarTweet(tweet.id);
-            }
-
-            // añadir el texto
-            li.innerText = tweet.tweet;
-
-            // Añadir el boton
-            li.appendChild(btnEliminar);
-
-            // insertarlo en el html
-            listaTweets.appendChild(li);
-        })
-    }
-
-    sincronizarStorage();
-}
 
 // limpia el html de la lista de tweets
 function limpiarHtml() {
@@ -108,12 +182,18 @@ function limpiarHtml() {
 
 // borra los tweets del html
 function eliminarTweet(id) {
-    tweets = tweets.filter(tweet => tweet.id !== id);
-    console.log(tweets);
-    crearHtml();
-}
 
-// Agrega tweets a localsotrage
-function sincronizarStorage() {
-    localStorage.setItem('tweets', JSON.stringify(tweets));
+    const transaction = DB.transaction(['tweets'], 'readwrite');
+    const objectStore = transaction.objectStore('tweets');
+
+    objectStore.delete(id);
+
+    transaction.oncomplete = () => {
+        obtenerDatos();
+    }
+
+    transaction.onerror = () => {
+        console.log('Hubo un error');
+    }
+
 }
